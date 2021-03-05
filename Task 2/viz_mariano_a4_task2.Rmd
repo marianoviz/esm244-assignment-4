@@ -1,0 +1,154 @@
+---
+title: "viz_mariano_a4_task2"
+author: "Mariano Viz"
+date: "05/03/2021"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(broom)
+
+```
+
+Source: Global wild fish catch and aquaculture production, compiled by Earth Policy Institute with 1950-2010 from U.N. Food and Agriculture Organization (FAO), Global Capture Production and Global Aquaculture Production, electronic databases, at www.fao.org/fishery/topic/16140/en.
+
+```{r}
+#Read in data and initial wrangling:
+fish_catch <- read_csv(here("Task 2", "fish_catch.csv"), skip=2) %>% 
+  slice(-c(66:69)) %>% 
+  slice(-c(1:2)) %>% 
+  clean_names() #names to lowercase
+
+
+#Add new column with years 0-62 (1950 = 0 / 2012 = 62):
+fish_catch_years <- fish_catch %>% 
+  mutate(years = 0:(n() - 1)) %>% 
+  mutate(wild_catch = as.numeric(wild_catch))
+
+```
+
+
+
+```{r}
+#Exploratory graph:
+
+ggplot(data = fish_catch_years, aes(x = years, y = wild_catch)) +
+  geom_point() +
+  labs(x = "time (years)", y = "wild fish catch (Mt)") +
+  theme_minimal()
+
+
+#Log transformed data:
+#ggplot(data = fish_catch_years, aes(x = years, y = log(wild_catch))) +
+  #geom_point() +
+  #labs(x = "time (years)", y = "ln(wild fish catch)") +
+  #theme_minimal()
+
+```
+In text below the exploratory graph: What type of relationship describes the trend? What
+does that look like mathematically (include an equation, possibly using LaTeX)? 
+
+Logistic growth equation: 
+
+$P(t)=\frac{K}{1+Ae^{-kt}}$, where
+
+- $K$ is the carrying capacity
+- $A$ is $\frac{K-P_0}{P_0}$
+- $k$ is the growth rate constant
+
+
+What are your initial estimates for the parameters in the model?
+
+```{r}
+#Initial estimates:
+
+  ##Estimate the growth constant during exponential phase (to get a starting-point guess for *k*):
+
+    ### Get the first 40 years (exponential growth) and log transform the population to estimate the growth rate constant (k) during this exponential growth:
+fish_catch_exp <- fish_catch_years %>% 
+  filter(years < 40) %>% 
+  mutate(ln_wild_catch = log(wild_catch))
+
+
+    ### Make a linear model to get the slope (slope = growth rate constant *k*):
+lm_fish_catch <- lm(ln_wild_catch ~ years, data = fish_catch_exp)
+
+lm_fish_catch 
+# slope: (k) ~ 0.0356
+
+
+  ## Initial estimates: # k = 0.356 
+                        # K = 94
+                        # A = (K-P0)/P0 = 4.5
+
+
+```
+
+
+
+
+```{r}
+#Nonlinear least squares to find parameter for the model describing wild catch:
+fish_catch_nls <- nls(wild_catch ~ K/(1 + A*exp(-r*years)),
+              data = fish_catch_years,
+              start = list(K = 94, 
+                           A = 4.5, 
+                           r = 0.356),
+              trace = TRUE
+              )
+
+
+#Model summary:
+summary(fish_catch_nls)
+
+
+
+#Report the parameter outcomes (with units) in text or a table:
+
+## Model outputs in tidy format: 
+fish_catch_out <- broom::tidy(fish_catch_nls) 
+#View(fish_catch_out)
+
+##For in line reference 
+A_est <- fish_catch_out$estimate[2] # Gets the first rown in the estimate column.
+
+
+```
+
+
+
+
+```{r}
+#Finalized graph showing original data and model output:
+
+## Make predictions for wild catch for all of the years: 
+fish_catch_predict <- predict(fish_catch_nls)
+
+## Add predictions to data:
+fish_catch_comp <- data.frame(fish_catch_years, fish_catch_predict)
+
+# Plot them all together:
+ggplot(data = fish_catch_comp, aes(x = years, y = wild_catch)) +
+  geom_point() +
+  geom_line(aes(x = years, y = fish_catch_predict)) +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,5 @@
 ---
-title: "viz_mariano_a4_task2"
+title: "Parameter estimation with Nonlinear Least Squares: wild fish catch (1950-2012) "
 author: "Mariano Viz"
 date: "05/03/2021"
 output: 
@@ -17,12 +17,19 @@ library(broom)
 
 ```
 
-Source: Global wild fish catch and aquaculture production, compiled by Earth Policy Institute with 1950-2010 from U.N. Food and Agriculture Organization (FAO), Global Capture Production and Global Aquaculture Production, electronic databases, at www.fao.org/fishery/topic/16140/en.
+**Data source:** Global wild fish catch and aquaculture production, compiled by Earth Policy Institute with 1950-2012 from U.N. Food and Agriculture Organization (FAO). Available at: https://www.fao.org/fishery/topic/16140/en
+
+
+
+## Summary
+
+In this report, I use nonlinear least squares to find parameters for a model describing wild fish catch over time. Data: FAO (2012).
+
 
 ```{r}
 #Read in data and initial wrangling:
 fish_catch <- read_csv(here("Task 2", "fish_catch.csv"), skip=2) %>% 
-  slice(-c(66:69)) %>% 
+  slice(-c(66:69)) %>% #keep rows with relevant information for the analysis
   slice(-c(1:2)) %>% 
   clean_names() #names to lowercase
 
@@ -30,7 +37,8 @@ fish_catch <- read_csv(here("Task 2", "fish_catch.csv"), skip=2) %>%
 #Add new column with years 0-62 (1950 = 0 / 2012 = 62):
 fish_catch_years <- fish_catch %>% 
   mutate(years = 0:(n() - 1)) %>% 
-  mutate(wild_catch = as.numeric(wild_catch))
+  mutate(wild_catch = as.numeric(wild_catch)) %>% 
+  mutate(year = as.numeric(year))
 
 ```
 
@@ -52,41 +60,45 @@ ggplot(data = fish_catch_years, aes(x = years, y = wild_catch)) +
   #theme_minimal()
 
 ```
-In text below the exploratory graph: What type of relationship describes the trend? What
-does that look like mathematically (include an equation, possibly using LaTeX)? 
 
-Logistic growth equation: 
 
-$P(t)=\frac{K}{1+Ae^{-kt}}$, where
+
+
+
+
+The exploratory graph describes a logistic relationship. In the first 40 years (1950-1990) wild fish catch increases exponentially and then remain relatively constant near 94 Mt.
+
+The logistic growth equation describes this relationship:
+
+$P(t)=\frac{K}{1+Ae^{-kt}}$
 
 - $K$ is the carrying capacity
 - $A$ is $\frac{K-P_0}{P_0}$
 - $k$ is the growth rate constant
 
 
-What are your initial estimates for the parameters in the model?
 
-```{r}
-#Initial estimates:
+```{r results='hide'}
+#Initial estimates for the parameters in the model:
 
-  ##Estimate the growth constant during exponential phase (to get a starting-point guess for *k*):
+##Estimate the growth constant during exponential phase (to get a starting-point guess for *k*):
 
-    ### Get the first 40 years (exponential growth) and log transform the population to estimate the growth rate constant (k) during this exponential growth:
+### Get the first 40 years (exponential growth) and log transform the population to estimate the growth rate constant (k) during this exponential growth:
 fish_catch_exp <- fish_catch_years %>% 
   filter(years < 40) %>% 
   mutate(ln_wild_catch = log(wild_catch))
 
 
-    ### Make a linear model to get the slope (slope = growth rate constant *k*):
+### Make a linear model to get the slope (slope = growth rate constant *k*):
 lm_fish_catch <- lm(ln_wild_catch ~ years, data = fish_catch_exp)
 
 lm_fish_catch 
 # slope: (k) ~ 0.0356
 
 
-  ## Initial estimates: # k = 0.356 
-                        # K = 94
-                        # A = (K-P0)/P0 = 4.5
+### Initial estimates: # k = 0.356 
+                       # K = 94
+                       # A = (K-P0)/P0 = 4.5
 
 
 ```
@@ -94,13 +106,15 @@ lm_fish_catch
 
 
 
-```{r}
+## Nonlinear least squares
+
+```{r results='hide'}
 #Nonlinear least squares to find parameter for the model describing wild catch:
-fish_catch_nls <- nls(wild_catch ~ K/(1 + A*exp(-r*years)),
+fish_catch_nls <- nls(wild_catch ~ K/(1 + A*exp(-k*years)),
               data = fish_catch_years,
               start = list(K = 94, 
                            A = 4.5, 
-                           r = 0.356),
+                           k = 0.356),
               trace = TRUE
               )
 
@@ -114,13 +128,28 @@ summary(fish_catch_nls)
 
 ## Model outputs in tidy format: 
 fish_catch_out <- broom::tidy(fish_catch_nls) 
-#View(fish_catch_out)
+  #View(fish_catch_out)
 
-##For in line reference 
-A_est <- fish_catch_out$estimate[2] # Gets the first rown in the estimate column.
+  #In line references:
+      # K = `r round(fish_catch_out$estimate[1],2)`
+      # A = `r round(fish_catch_out$estimate[2],2)` 
+      # k = `r round(fish_catch_out$estimate[3],4)`
 
 
 ```
+
+
+Estimated parameters:
+
+- *K* = `r round(fish_catch_out$estimate[1],2)` Mt
+- *A* = `r round(fish_catch_out$estimate[2],2)` Mt
+- *k* = `r round(fish_catch_out$estimate[3],4)` year^-1^
+
+
+Model with estimated parameters:
+
+$P(t) = \frac{100.28}{1+4.32e^{-0.699t}}$
+
 
 
 
@@ -135,9 +164,11 @@ fish_catch_predict <- predict(fish_catch_nls)
 fish_catch_comp <- data.frame(fish_catch_years, fish_catch_predict)
 
 # Plot them all together:
-ggplot(data = fish_catch_comp, aes(x = years, y = wild_catch)) +
-  geom_point() +
-  geom_line(aes(x = years, y = fish_catch_predict)) +
+ggplot(data = fish_catch_comp) +
+  geom_point(aes(x = year, y = wild_catch)) +
+  geom_line(aes(x = year, y = fish_catch_predict), color = "dodgerblue2") +
+  labs(x = "year", y = "wild fish catch (Mt)") +
+  geom_text(aes(x = 1978,y = 65, label= "Model output", hjust = 1), size = 2.5, color = "dodgerblue2")+
   theme_minimal()
 
 ```
